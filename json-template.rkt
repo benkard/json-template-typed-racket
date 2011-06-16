@@ -212,27 +212,19 @@
 
 (define (resolve-path-in-object context path)
   (let ([nothing (gensym)])
-    (if (null? path)
-        (values context #t)
-        (cond
-         [(hash? context)
-          (let ([y (hash-ref context (car path) nothing)])
-            (if (eq? y nothing)
-                (values #f #f)
-                (resolve-path-in-object y (cdr path))))]
-         [(list? context)
-          (let* ([x (car path)]
-                 [y (assf (λ (key)
-                            (or (and (symbol? key)
-                                     (string=? (symbol->string key) x))
-                                (and (string? key)
-                                     (string=? key x))))
-                          context)])
-            (if y
-                (resolve-path-in-object (cdr y) (cdr path))
-                (values #f #f)))]
-         [else
-          (values #f #f)]))))
+    (cond [(null? path)
+           (values context #t)]
+          [(dict? context)
+           (let ([y (dict-ref context
+                              (car path)
+                              (dict-ref context
+                                        (string->symbol (car path))
+                                        nothing))])
+             (if (eq? y nothing)
+                 (values #f #f)
+                 (resolve-path-in-object y (cdr path))))]
+          [else
+           (values #f #f)])))
 
 (define (find-formatter name)
   (cdr (assoc (if (string? name)
