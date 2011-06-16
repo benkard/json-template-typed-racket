@@ -217,9 +217,10 @@
           [(dict? context)
            (let ([y (dict-ref context
                               (car path)
-                              (dict-ref context
-                                        (string->symbol (car path))
-                                        nothing))])
+                              (λ ()
+                                (dict-ref context
+                                          (string->symbol (car path))
+                                          nothing)))])
              (if (eq? y nothing)
                  (values #f #f)
                  (resolve-path-in-object y (cdr path))))]
