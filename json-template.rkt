@@ -310,7 +310,7 @@
      ("raw"             . ,(λ (x) x)))))
 
 
-;;#;
+#;
 (let ([template (with-input-from-string
                  #<<EOF
 <h1>{title|html}</h1>
