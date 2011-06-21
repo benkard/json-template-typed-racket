@@ -179,11 +179,14 @@
   (let-values ([(stuff reason rest) (parse-structure x)])
     stuff))
 
+(struct template (expander)
+  #:property prop:procedure (struct-field-index expander))
+
 (define (read-template #:meta-left         [meta-left "{"]
                        #:meta-right        [meta-right "}"]
                        #:default-formatter [default-formatter "raw"]
                        #:format-char       [format-char "|"])
-  (let ([template
+  (let ([template-data
          (parse-structure*
           (remove-spurious-newlines-from-token-groups
            (parse-token-groups
@@ -192,8 +195,9 @@
              meta-left
              meta-right
              format-char))))])
-    (λ (context)
-      (expand-template template (list context) default-formatter))))
+    (template
+     (λ (context)
+       (expand-template template-data (list context) default-formatter)))))
 
 (define (name->path bytename)
   (let ([name (bytes->string/utf-8 bytename)])
