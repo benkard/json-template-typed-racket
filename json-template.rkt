@@ -353,7 +353,7 @@
 
 ;;#;
 (let ([template (with-input-from-string
-                    "
+                 #<<EOF
 <h1>{title|html}</h1>
 {.section people}
 <ul>
@@ -363,7 +363,8 @@
 </ul>
 {.or}
 <p>No one's registered.</p>
-{.end}"
+{.end}
+EOF
                   (λ () (read-template)))])
   (template '((title . "<Registered People>")
               (people .
