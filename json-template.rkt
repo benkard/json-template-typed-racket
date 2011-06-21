@@ -5,86 +5,43 @@
 (provide read-template
          formatters)
 
-;;(define (prepare-input in)
-;;  (regexp-replace* #rx"\n({[^}]*})\n" (port->string in) "\\1"))
-
-(define (read-and-tokenize meta-left meta-right format-char)
+(define (template-string->chunks input meta-left meta-right)
   (let* ([meta-left-re   (regexp-quote meta-left)]
          [meta-right-re  (regexp-quote meta-right)]
-         [format-char-re (regexp-quote format-char)]
          [re (regexp
-              (string-append "(.*?)"    ;raw text
-                             "(?:"
-                             "(" meta-left-re ")|"
-                             "(" meta-right-re ")|"
-                             "(" format-char-re ")"
-                             ")"
-                             ;; --- if nothing matches: ---
-                             "|(.*)$"))])
-    (let loop ([tokens '()])
-      (match-let ([(list _ raw-text meta-left? meta-right? format-char? alternative)
-                   (regexp-match re (current-input-port))])
-        (cond
-         [meta-left?
-          (loop (list* 'meta-left raw-text tokens))]
-         [meta-right?
-          (loop (list* 'meta-right raw-text tokens))]
-         [format-char?
-          (loop (list* 'format-char raw-text tokens))]
-         [alternative
-          (reverse (list* alternative tokens))]
-         [else
-          (error "JSON Template: Failed tokenizing input.")])))))
+              (string-append "(" meta-left-re ")|(" meta-right-re ")"))])
+    (regexp-split re input)))
 
-(define (group-tokens tokens meta-left meta-right format-char)
-  (let loop ([tokens tokens]
-             [groups '()]
-             [current-group #f])
-    (if (null? tokens)
-        (reverse (if current-group (cons (reverse current-group) groups) groups))
-        (let ([token (car tokens)])
-          (if current-group
-              (case token
-                [(meta-right)
-                 (loop (cdr tokens) (cons (reverse current-group) groups) #f)]
-                ;; format-char is discarded since its only purpose was
-                ;; to separate the captured strings.
-                [(format-char)
-                 (loop (cdr tokens) groups current-group)]
-                [else
-                 (loop (cdr tokens) groups (cons token current-group))])
-              (case token
-                [(meta-left)
-                 (loop (cdr tokens) groups '())]
-                [(format-char)
-                 (loop (cdr tokens) (cons format-char groups) #f)]
-                [(meta-right)
-                 (loop (cdr tokens) (cons meta-right groups) #f)]
-                [else
-                 (loop (cdr tokens) (cons token groups) #f)]))))))
+(define (classify-chunks chunks format-char)
+  (define (classify-text-chunk xs)
+    (if (null? xs)
+        '()
+        (cons (car xs) (classify-directive-chunk (cdr xs)))))
+  (define (classify-directive-chunk xs)
+    (if (null? xs)
+        '()
+        (cons (parse-directive (car xs) format-char)
+              (classify-text-chunk (cdr xs)))))
+  (classify-text-chunk chunks))
 
-(define (parse-token-groups groups)
-  (filter (λ (x) x)
-          (map (λ (group)
-                  (if (list? group)
-                      (match (car group)
-                        [(regexp #rx"^#")
-                         #f]
-                        [(regexp #px"^\\.section\\s+(.*)$" (list _ x))
-                         (list 'section x)]
-                        [(regexp #px"^\\.repeated\\s+section\\s+(.*)$" (list _ x))
-                         (list 'repeated-section x)]
-                        [#".end"
-                         (list 'end)]
-                        [#".or"
-                         (list 'or)]
-                        [(regexp #px"^\\.alternates\\s+with$")
-                         (list 'alternates-with)]
-                        [_
-                         (list* 'substitute group)])
-                      group))
-               groups)))
-
+(define (parse-directive directive format-char)
+  (match directive
+    [(regexp #rx"^#")
+     #f]
+    [(regexp #px"^\\.section\\s+(.*)$" (list _ x))
+     (list 'section x)]
+    [(regexp #px"^\\.repeated\\s+section\\s+(.*)$" (list _ x))
+     (list 'repeated-section x)]
+    [#".end"
+     (list 'end)]
+    [#".or"
+     (list 'or)]
+    [(regexp #px"^\\.alternates\\s+with$")
+     (list 'alternates-with)]
+    [_
+     (list* 'substitute (regexp-split (regexp-quote format-char)
+                                      directive))]))
+  
 (define (remove-spurious-newlines-from-token-groups groups)
   (let ([last-was-directive? #f])
     (for/list ([group groups])
@@ -189,12 +146,9 @@
   (let ([template-data
          (parse-structure*
           (remove-spurious-newlines-from-token-groups
-           (parse-token-groups
-            (group-tokens
-             (read-and-tokenize meta-left meta-right format-char)
-             meta-left
-             meta-right
-             format-char))))])
+           (classify-chunks (template-string->chunks (current-input-port)
+                                                     meta-left meta-right)
+                            format-char)))])
     (template
      (λ (context)
        (expand-template template-data (list context) default-formatter)))))
