@@ -1,0 +1,4 @@
+[patterns]
+.hgeol = native
+**.rkt = native
+
