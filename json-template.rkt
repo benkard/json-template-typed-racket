@@ -12,17 +12,22 @@
               (string-append "(" meta-left-re ")|(" meta-right-re ")"))])
     (regexp-split re input)))
 
+(define (flip-flop-map f1 f2 lst)
+  "Like map, but alternate between f1 and f2 as the function to apply."
+  (define (flip items)
+    (match items
+      ['()          '()]
+      [(list* x xs) (cons (f1 x) (flop xs))]))
+  (define (flop items)
+    (match items
+      ['()          '()]
+      [(list* x xs) (cons (f2 x) (flip xs))]))
+  (flip lst))
+
 (define (classify-chunks chunks format-char)
-  (define (classify-text-chunk xs)
-    (if (null? xs)
-        '()
-        (cons (car xs) (classify-directive-chunk (cdr xs)))))
-  (define (classify-directive-chunk xs)
-    (if (null? xs)
-        '()
-        (cons (parse-directive (car xs) format-char)
-              (classify-text-chunk (cdr xs)))))
-  (classify-text-chunk chunks))
+  (flip-flop-map (λ (x) x)
+                 (λ (x) (parse-directive x format-char))
+                 chunks))
 
 (define (parse-directive directive format-char)
   (match directive
