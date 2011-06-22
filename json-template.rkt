@@ -1,54 +1,76 @@
 ;;; -*- mode: scheme; coding: utf-8 -*-
 ;;; Copyright 2011, Matthias Andreas Benkard.
-#lang racket
+#lang typed/racket
 
 (provide read-template
-         formatters)
+         formatters
+         meta-left
+         meta-right
+         default-formatter
+         format-char)
 
-(define (template-string->chunks input meta-left meta-right)
+(define meta-left         (make-parameter "{"))
+(define meta-right        (make-parameter "}"))
+(define default-formatter (make-parameter "raw"))
+(define format-char       (make-parameter "|"))
+
+(define: (template-string->chunks [input : String]
+                                  [meta-left : String]
+                                  [meta-right : String]) : (Listof String)
   (let* ([meta-left-re   (regexp-quote meta-left)]
          [meta-right-re  (regexp-quote meta-right)]
          [re (regexp
               (string-append "(" meta-left-re ")|(" meta-right-re ")"))])
     (regexp-split re input)))
 
+(: flip-flop-map
+   (All (a b)
+        (a -> b) (a -> b) (Listof a) -> (Listof b)))
 (define (flip-flop-map f1 f2 lst)
   "Like map, but alternate between f1 and f2 as the function to apply."
-  (define (flip items)
+  (define: (flip [items : (Listof a)]) : (Listof b)
     (match items
       ['()          '()]
       [(list* x xs) (cons (f1 x) (flop xs))]))
-  (define (flop items)
+  (define: (flop [items : (Listof a)]) : (Listof b)
     (match items
       ['()          '()]
       [(list* x xs) (cons (f2 x) (flip xs))]))
   (flip lst))
 
-(define (classify-chunks chunks format-char)
-  (flip-flop-map (λ (x) x)
-                 (λ (x) (parse-directive x format-char))
+
+(struct: directive
+  ([type : Symbol]
+   [arguments : (Listof String)])
+  #:transparent)
+(define-type Group (U String directive))
+
+(define: (classify-chunks [chunks : (Listof String)]
+                          [format-char : String]) : (Listof Group)
+  (flip-flop-map (λ: ([x : String]) x)
+                 (λ: ([x : String]) (parse-directive x format-char))
                  chunks))
 
-(define (parse-directive directive format-char)
-  (match directive
-    [(regexp #rx"^#")
-     #f]
+(define: (parse-directive [text : String]
+                          [format-char : String]) : directive
+  (match text
     [(regexp #px"^\\.section\\s+(.*)$" (list _ x))
-     (list 'section x)]
+     (directive 'section (list x))]
     [(regexp #px"^\\.repeated\\s+section\\s+(.*)$" (list _ x))
-     (list 'repeated-section x)]
+     (directive 'repeated-section (list x))]
     [#".end"
-     (list 'end)]
+     (directive 'end '())]
     [#".or"
-     (list 'or)]
+     (directive 'or '())]
     [(regexp #px"^\\.alternates\\s+with$")
-     (list 'alternates-with)]
+     (directive 'alternates-with '())]
     [_
-     (list* 'substitute (regexp-split (regexp-quote format-char)
-                                      directive))]))
-  
-(define (remove-spurious-newlines-from-token-groups groups)
-  (let ([last-was-directive? #f])
+     (directive 'substitute
+                (regexp-split (regexp-quote format-char) text))]))
+
+(define: (remove-spurious-newlines-from-token-groups [groups : (Listof Group)])
+  : (Listof Group)
+  (let: ([last-was-directive? : Boolean #f])
     (for/list ([group groups])
       (if last-was-directive?
           (begin
@@ -60,33 +82,37 @@
             (set! last-was-directive? (pair? group))
             group)))))
 
-(struct section
-  (name
-   body
-   alternative)
+(define-type Part (U section substitution String))
+
+(struct: section
+  ([name : String]
+   [body : (Listof Part)]
+   [alternative : (Listof Part)])
   #:transparent)
 
-(struct repeated-section section
-  (alternates-with)
+(struct: repeated-section section
+  ([alternates-with : (Listof Part)])
   #:transparent)
 
-(struct substitution
-  (name
-   formatter
-   arguments)
+(struct: substitution
+  ([name : String]
+   [formatter : String]
+   [arguments : (Listof String)])
   #:transparent)
 
-(define (parse-structure parsed-groups)
-  (let loop ([parsed-groups parsed-groups]
-             [clauses '()])
+(define: (parse-structure [parsed-groups : (Listof Group)])
+  : (values (Listof Part) (U Symbol False) (Listof Group))
+  (let: loop : (values (Listof Part) (U Symbol False) (Listof Group))
+        ([parsed-groups : (Listof Group) parsed-groups]
+         [clauses       : (Listof Part)  '()])
     (if (or (null? parsed-groups)
-            (and (pair? (car parsed-groups))
-                 (memq (caar parsed-groups) '(end or alternates-with))))
+            (and (directive? (car parsed-groups))
+                 (memq (directive-type parsed-groups) '(end or alternates-with))))
         (values (reverse clauses)
-                (and (pair? parsed-groups) (caar parsed-groups))
+                (if (directive? parsed-groups) (caar parsed-groups) #f))
                 (if (pair? parsed-groups) (cdr parsed-groups) '()))
         (match (car parsed-groups)
-          [(list 'section x)
+          [(directive 'section (list x))
            (let-values ([(stuff reason rest)
                          (parse-structure (cdr parsed-groups))])
              (case reason
@@ -96,7 +122,7 @@
                   (loop rest2 (cons (section x stuff stuff2) clauses)))]
                [(end)
                 (loop rest (cons (section x stuff #f) clauses))]))]
-          [(list 'repeated-section x)
+          [(directive 'repeated-section (list x))
            (let inner-loop ([subsections '()]
                             [rest (cdr parsed-groups)])
              (let-values ([(stuff reason new-rest)
@@ -106,8 +132,8 @@
                (if (eq? reason 'end)
                    (let inner-inner-loop
                        ([subsections (cons (cons 'end stuff) subsections)]
-                        [alternative #f]
-                        [alternates-with #f])
+                        [alternative (list)]
+                        [alternates-with (list)])
                      (if (null? (cdr subsections))
                          (loop new-rest
                                (cons (repeated-section x
@@ -127,44 +153,46 @@
                            [else
                             (error "Oh no, I don't know what I'm doing here!  Subsections:" subsections)])))
                    (inner-loop (cons (cons reason stuff) subsections) new-rest))))]
-          [(list 'substitute x)
+          [(directive 'substitute (list x))
            (loop (cdr parsed-groups)
                  (cons (substitution x #f '()) clauses))]
-          [(list 'substitute x y arg ...)
+          [(directive 'substitute (list x y arg ...))
            (loop (cdr parsed-groups)
                  (cons (substitution x y arg) clauses))]
           [x
            (loop (cdr parsed-groups)
-                 (cons x clauses))]))))
+                 (cons x clauses))])))
 
-(define (parse-structure* x)
+(define: (parse-structure* [x : (Listof Group)]) : (Listof Part)
   (let-values ([(stuff reason rest) (parse-structure x)])
     stuff))
 
-(struct template (expander)
+(struct: template ([expander : (Any -> String)])
   #:property prop:procedure (struct-field-index expander))
 
-(define (read-template #:meta-left         [meta-left "{"]
-                       #:meta-right        [meta-right "}"]
-                       #:default-formatter [default-formatter "raw"]
-                       #:format-char       [format-char "|"])
+
+;;(define: (read-template #:meta-left         [meta-left "{"]
+;;                        #:meta-right        [meta-right "}"]
+;;                        #:default-formatter [default-formatter "raw"]
+;;                        #:format-char       [format-char "|"])
+(define: (read-template [input-string : String]) : template
   (let ([template-data
          (parse-structure*
           (remove-spurious-newlines-from-token-groups
-           (classify-chunks (template-string->chunks (current-input-port)
-                                                     meta-left meta-right)
+           (classify-chunks (template-string->chunks input-string
+                                                     meta-left
+                                                     meta-right)
                             format-char)))])
     (template
      (λ (context)
        (expand-template template-data (list context) default-formatter)))))
 
-(define (name->path bytename)
-  (let ([name (bytes->string/utf-8 bytename)])
-    (if (string=? name "@")
-        '()
-        (regexp-split #rx"\\." name))))
+(define: (name->path [name : String]) : (Listof String)
+  (if (string=? name "@")
+      '()
+      (regexp-split #rx"\\." name)))
 
-(define (resolve-path stack path)
+(define: (resolve-path [stack : (Listof Any)] [path : (Listof String)]) : Any
   (if (null? stack)
       #f
       (let-values ([(value success?)
@@ -173,7 +201,7 @@
             value
             (resolve-path (cdr stack) path)))))
 
-(define (resolve-path-in-object context path)
+(define: (resolve-path-in-object [context : Any] [path : (Listof String)]) : (values Any Boolean)
   (let ([nothing (gensym)])
     (cond [(null? path)
            (values context #t)]
@@ -190,13 +218,12 @@
           [else
            (values #f #f)])))
 
-(define (find-formatter name)
-  (cdr (assoc (if (string? name)
-                  name
-                  (bytes->string/utf-8 name))
-              (formatters))))
+(define: (find-formatter [name : String]) : (String -> String)
+  (cdr (assoc name (formatters))))
 
-(define (expand-template template stack default-formatter)
+(define: (expand-template [template : (Listof Part)]
+                          [stack : (Listof Any)]
+                          [default-formatter : String]) : Void
   (for ([thing template])
     (match thing
       [(repeated-section name body alternative alternates-with)
@@ -230,13 +257,13 @@
                                 default-formatter))))]
       [(substitution name formatter args)
        (display ((find-formatter (or formatter default-formatter))
-                 (resolve-path stack (name->path name))))]
+                 (format "~a" (resolve-path stack (name->path name)))))]
       [_
        (display thing)])))
 
 
 
-(define (make-escaper replacements)
+(define: (make-escaper [replacements : List]) : (String -> String)
   (let* ([escapees  (map car replacements)]
          [escapings (map cdr replacements)]
          [re        (regexp
@@ -258,7 +285,7 @@
                 thing
                 (format "~a" thing))
             (λ ()
-              (let loop ()
+              (let: loop : Void ()
                 (unless (eof-object? (peek-byte))
                   (match-let ([(list* _ raw-text escapee-matches)
                                (regexp-match re (current-input-port))])
@@ -271,7 +298,7 @@
                     (loop)))))))))))
 
 
-(define (escape-for-uri thing)
+(define: (escape-for-uri [thing : String]) : String
   (with-output-to-string
     (λ ()
       (for ([char (in-string (if (string? thing)
