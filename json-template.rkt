@@ -12,15 +12,16 @@
                [dict-ref (Any Any Any -> Any)]
                [dict? (Any -> Boolean)])
 
-(provide make-template
-         formatters
-         meta-left
-         meta-right
-         default-formatter
-         format-char)
+(provide: [make-template     (String -> Template)]
+          [formatters        (Parameterof (Listof (Pairof String (String -> String))))]
+          [meta-left         (Parameterof String)]
+          [meta-right        (Parameterof String)]
+          [default-formatter (Parameterof String)]
+          [format-char       (Parameterof String)])
+(provide Template)
 
-#;
-(provide: ...)
+
+(define-type Template (Any -> Void))
 
 (define meta-left         (make-parameter "{"))
 (define meta-right        (make-parameter "}"))
@@ -209,9 +210,7 @@
 ;;  #:property prop:procedure (struct-field-index expander))
 
 
-(define-type template (Any -> Void))
-
-(define: (make-template [input-string : String]) : template
+(define (make-template input-string)
   (let ([template-data
          (parse-structure*
           (remove-spurious-newlines-from-token-groups
@@ -363,7 +362,7 @@
                  (printf "%~x"  cnum))))))))
 
 
-(define: formatters : (Parameterof (Listof (Pairof String (String -> String))))
+(define formatters
   (make-parameter
    `(("html"            . ,(make-escaper '((#\< . "&#60;")
                                            (#\> . "&#62;")
