@@ -6,7 +6,7 @@
 @(require (for-label "json-template.rkt"))
 @;@(require (for-label (this-package-in json-template)))
 
-@(define r6rs-evaluator
+@;@(define r6rs-evaluator
    (call-with-trusted-sandbox-configuration
     (lambda ()
       (parameterize ([sandbox-output 'string]
