@@ -7,13 +7,13 @@
 @;@(require (for-label (this-package-in json-template)))
 
 @;@(define r6rs-evaluator
-   (call-with-trusted-sandbox-configuration
-    (lambda ()
-      (parameterize ([sandbox-output 'string]
-                     [sandbox-error-output 'string])
-        (make-evaluator
-         'r6rs
-         '(import (rnrs) (json-template)))))))
+@;   (call-with-trusted-sandbox-configuration
+@;    (lambda ()
+@;      (parameterize ([sandbox-output 'string]
+@;                     [sandbox-error-output 'string])
+@;        (make-evaluator
+@;         'r6rs
+@;         '(import (rnrs) (json-template)))))))
 @(define racket-evaluator
    (call-with-trusted-sandbox-configuration
     (lambda ()
