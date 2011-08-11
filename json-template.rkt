@@ -4,13 +4,14 @@
 
 (require/typed racket
                [regexp-split (Regexp String -> (Listof String))]
-               ;;[sequence->list (All (a) (Sequenceof a) -> (Listof a))]
-               [sequence->list (All (a) Any -> (Listof a))]  ;FIXME
                [regexp-replace (Regexp String String -> String)]
-               [sequence? (Any -> Boolean)]
                [with-input-from-string (All (a) (String (-> a) -> a))]
-               [dict-ref (Any Any Any -> Any)]
-               [dict? (Any -> Boolean)])
+               [opaque Dictionary dict?]
+               [dict-ref (Dictionary Any Any -> Any)]
+               [opaque Sequence sequence?])
+
+(require/typed "typed-sequence.rkt"
+               [sequence->sequence (Sequence -> (Sequenceof Any))])
 
 (provide: [make-template     (String -> Template)]
           [formatters        (Parameterof (Listof (Pairof String (String -> String))))]
@@ -273,16 +274,18 @@
                                 (cons context stack)
                                 default-formatter))
              (let: ([first-iteration? : Boolean #t])
-               (for ([value (in-list context)])
-                 (when alternates-with
-                   (if first-iteration?
-                       (set! first-iteration? #f)
-                       (expand-template alternates-with
-                                        stack
-                                        default-formatter)))
-                 (expand-template body
-                                  (cons value stack)
-                                  default-formatter)))))]
+               (if (sequence? context)
+                   (for ([value (sequence->sequence context)])
+                     (when alternates-with
+                       (if first-iteration?
+                           (set! first-iteration? #f)
+                           (expand-template alternates-with
+                                            stack
+                                            default-formatter)))
+                     (expand-template body
+                                      (cons value stack)
+                                      default-formatter))
+                   (error "Repeated context is not a sequence: ~S" context)))))]
       [(section name body alternative)
        (let ([context (resolve-path stack (name->path name))])
          (if context
